@@ -43,10 +43,11 @@ class PlantSimulator:
     fault_status: int = config.FAULT_NONE
     _frozen_temp: float = field(default=0.0, repr=False)
 
-    # --- helpers for discrete events ---
+    # --- helpers for discrete events (bottling line) ---
     _fill_timer: int = field(default=0, repr=False)
-    _bottle_phase: int = field(default=0, repr=False)
+    _station_timer: int = field(default=0, repr=False)
     _bottle_filled: int = field(default=0, repr=False)
+    _bottle_capped: int = field(default=0, repr=False)
 
     def reset(self) -> None:
         """Reset the plant to a clean starting state."""
@@ -60,8 +61,9 @@ class PlantSimulator:
         self.valve_feedback = 0
         self.fault_status = config.FAULT_NONE
         self._fill_timer = 0
-        self._bottle_phase = 0
+        self._station_timer = 0
         self._bottle_filled = 0
+        self._bottle_capped = 0
 
     # ------------------------------------------------------------------
     # Main update
@@ -145,34 +147,40 @@ class PlantSimulator:
 
     def _update_bottling(self, conveyor_cmd: int, fill_valve_cmd: int,
                          capper_cmd: int) -> None:
-        """Discrete-event model for bottle presence, filling and capping."""
+        """Discrete-event model for bottle presence, filling and capping.
+
+        The conveyor presents one bottle per cycle: it sits at the station for
+        most of the cycle (long enough to fill and cap), then a one-tick gap
+        advances the next empty bottle into place.
+        """
         if not conveyor_cmd:
             # Line stopped: hold the current bottle in place.
             return
 
-        # The conveyor advances a bottle through a small phase cycle:
-        #   phase 0 -> empty slot (no bottle)
-        #   phase 1 -> bottle arrives and is detected at the filler
-        #   phase 2 -> bottle being filled / waiting to be capped
-        self._bottle_phase = (self._bottle_phase + 1) % 4
+        cycle = config.BOTTLE_CYCLE_TICKS
+        self._station_timer = (self._station_timer + 1) % cycle
 
-        if self._bottle_phase in (1, 2):
-            self.bottle_present = 1
-        else:
+        if self._station_timer == 0:
+            # Gap between bottles: clear the station and reset per-bottle flags.
             self.bottle_present = 0
+            self._fill_timer = 0
+            self._bottle_filled = 0
+            self._bottle_capped = 0
+            return
 
-        # Filling
-        if self.bottle_present and fill_valve_cmd:
+        self.bottle_present = 1
+
+        # Filling: accumulate while the fill valve is open and the bottle is not
+        # yet full. After FILL_DURATION_TICKS the bottle is considered filled.
+        if fill_valve_cmd and not self._bottle_filled:
             self._fill_timer += 1
             if self._fill_timer >= config.FILL_DURATION_TICKS:
                 self._bottle_filled = 1
-        else:
-            self._fill_timer = 0
 
         # Capping & counting: a filled bottle that gets capped is counted once.
-        if self.bottle_present and self._bottle_filled and capper_cmd:
+        if self._bottle_filled and capper_cmd and not self._bottle_capped:
             self.bottle_count += 1
-            self._bottle_filled = 0
+            self._bottle_capped = 1
 
     # ------------------------------------------------------------------
     def stage_state(self) -> str:
