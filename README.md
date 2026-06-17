@@ -2,6 +2,40 @@
 
 This repository contains a digital twin of a smart beverage pasteurization and bottling line. The system is organized like an RTL-style modular design: each module has clear input pins, output pins, and a defined responsibility.
 
+> **TUMA206 group project.** A pure-Python implementation of the 5-module
+> architecture below. The dashboard runs the whole line locally in one command
+> and lets you inject faults live and see PLC alarms + AI operator advice.
+
+## Quick start
+
+```bash
+# 1. Install Python 3.10+ (https://www.python.org/downloads/), then:
+pip install -r requirements.txt
+
+# 2. Launch the dashboard (this starts the simulator, PLC and data layer too):
+streamlit run dashboard/app.py
+```
+
+Then in the browser: press **Start line**, watch the trends, and use the
+**Fault injection** menu to trigger an alarm and see the AI recommendation.
+
+No API key and no MQTT broker are required for the basic demo. To try the
+Claude-powered assistant, copy `.env.example` to `.env` and set
+`ANTHROPIC_API_KEY`. A terminal-only smoke test is available via `python run.py`.
+
+## Technology stack (from the project proposal)
+
+| Layer | Tool | Module |
+|---|---|---|
+| Frontend (dashboard) | Streamlit + Plotly | M4 |
+| Backend | Python (FastAPI) + paho-mqtt | engine + M3 (FastAPI is optional) |
+| Database | SQLite + CSV export | M3 historian |
+| LLM model + provider | Claude Sonnet + Anthropic API | M5 |
+| Agent framework | Claude Agent SDK / custom Python loop | M5 |
+
+Everything is Python and installs with `pip`. React was considered but the team
+chose Streamlit so no one has to learn a new frontend framework.
+
 ## 1. System Assumption
 
 | Item | Value |
@@ -165,26 +199,55 @@ flowchart LR
 | Process fault | `fault_inject_code = TEMP_EXCURSION` | `pasteur_temp` is outside safe range for multiple update cycles. | `alarm_code = TEMP_OUT_OF_RANGE` |
 | Infrastructure fault | `fault_inject_code = MQTT_STALE` | `data_stale_flag = 1` or tag timestamp is too old. | `alarm_code = DATA_STALE` |
 
-## 8. Suggested Repository Structure
+## 8. Repository Structure
 
 ```text
-README.md
-simulator/
-plc/
-messaging/
-historian/
-dashboard/
-ai_assistant/
+README.md            # this file (design spec + how to run)
+config.py            # shared constants: tags, set-points, fault & alarm codes
+simulator/plant.py   # M1  Plant Simulator (physics + fault behaviour)
+plc/controller.py    # M2  PLC Controller (state machine, control, fault detection)
+messaging/bus.py     # M3a Message bus (in-process or MQTT/paho-mqtt)
+historian/store.py   # M3b Historian (SQLite storage + CSV export)
+engine/runtime.py    #     Closed-loop runtime that wires M1+M2 and feeds M3
+ai_assistant/assistant.py  # M5  AI Assistant (Claude API + rule-based fallback)
+dashboard/app.py     # M4  Streamlit + Plotly dashboard (demo entry point)
+backend/api.py       #     Optional FastAPI REST/WebSocket server (same engine)
+run.py               #     Headless terminal demo / smoke test
 requirements.txt
+.env.example         # template for ANTHROPIC_API_KEY / USE_MQTT
 ```
+
+### Suggested module ownership (6 members)
+
+The first two modules are the most complex, so the chat agreed to put 3 people
+on them. A suggested split:
+
+| Member | Module / area |
+|---|---|
+| 1 | M1 Plant Simulator (`simulator/`) |
+| 2 | M2 PLC Controller (`plc/`) |
+| 3 | M1+M2 closed-loop engine + faults (`engine/`) |
+| 4 | M3 Data Layer: MQTT bus + historian (`messaging/`, `historian/`) |
+| 5 | M4 Dashboard (`dashboard/`) |
+| 6 | M5 AI Assistant (`ai_assistant/`) |
 
 ## 9. Demo Plan
 
-1. Start the plant simulator.
-2. Start the PLC controller.
-3. Start the MQTT broker and historian.
-4. Start the dashboard.
-5. Start the AI assistant.
-6. Run normal operation.
-7. Inject each fault through `fault_inject_code`.
-8. Confirm that the dashboard shows the alarm and AI recommendation.
+1. Run `streamlit run dashboard/app.py`. This starts the plant simulator (M1),
+   PLC controller (M2), data layer / historian (M3) and AI assistant (M5)
+   together, then opens the dashboard (M4).
+2. Press **Start line** and let the line reach normal operation (tank level
+   controlled, pasteurization temperature near 72 degC, bottles counting up).
+3. Inject each fault from the **Fault injection** menu:
+   - `1` Temperature sensor stuck -> `SENSOR_TEMP_STUCK`
+   - `2` Feed pump failure -> `PUMP_NO_FLOW`
+   - `3` Temperature excursion -> `TEMP_OUT_OF_RANGE`
+   - `4` Data link stale (MQTT) -> `DATA_STALE`
+4. Confirm the dashboard shows the alarm banner, the trend reacts, and the AI
+   assistant explains the fault and recommends safe operator actions.
+5. Press **Reset fault**, then **Start line** to recover, and **Export CSV** to
+   save evidence of the run.
+
+> Advanced: set `USE_MQTT=1` (with a Mosquitto broker on `localhost:1883`) to
+> route tags over real MQTT, and run `uvicorn backend.api:app` to expose the
+> same engine over REST/WebSocket.

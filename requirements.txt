@@ -1,0 +1,19 @@
+# Core dashboard (M4)
+streamlit>=1.33
+plotly>=5.20
+pandas>=2.0
+streamlit-autorefresh>=1.0.1
+
+# Optional backend (matches proposal stack) - not required for the basic demo
+fastapi>=0.110
+uvicorn>=0.29
+
+# Data layer (M3) - MQTT transport. Optional: only needed with USE_MQTT=1
+paho-mqtt>=2.0
+
+# AI assistant (M5) - Claude via Anthropic API. Optional: rule-based fallback
+# is used automatically when ANTHROPIC_API_KEY is not set.
+anthropic>=0.34
+
+# Loads ANTHROPIC_API_KEY / USE_MQTT from a local .env file
+python-dotenv>=1.0
