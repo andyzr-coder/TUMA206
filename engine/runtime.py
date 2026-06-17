@@ -89,11 +89,25 @@ class SimulationEngine:
             self._operator_stop = 0
             self._reset_fault = 0
 
-        # Data-stale detection: how long since the bus last saw a tag update.
-        data_stale_flag = 0
+        # Infrastructure fault (DATA_STALE / MQTT down): the data link to the
+        # dashboard is broken. No fresh tags are published or stored, so the
+        # values the operator sees must FREEZE. We surface the last snapshot
+        # with the DATA_STALE alarm set, and keep its old timestamp so the data
+        # is visibly stale. The physical line is not stepped while frozen; it
+        # resumes from the same state when the fault is reset.
         if simulate_stale:
-            data_stale_flag = 1
-        elif self.bus.seconds_since_last(config.MQTT_TOPIC_TAGS) > config.DATA_STALE_TIMEOUT_S:
+            with self._lock:
+                frozen = dict(self._latest) if self._latest else {}
+                frozen["data_stale_flag"] = 1
+                frozen["alarm_code"] = config.ALARM_DATA_STALE
+                frozen["plc_state"] = frozen.get("plc_state", config.PLC_RUNNING)
+                frozen.setdefault("ts", time.time())
+                self._latest = frozen
+                self._tick += 1
+            return frozen
+
+        data_stale_flag = 0
+        if self.bus.seconds_since_last(config.MQTT_TOPIC_TAGS) > config.DATA_STALE_TIMEOUT_S:
             # only meaningful once we have published at least once
             if self._tick > 0:
                 data_stale_flag = 1
@@ -119,9 +133,8 @@ class SimulationEngine:
         snapshot["ts"] = time.time()
         snapshot["tick"] = self._tick
 
-        # --- M3: publish + store (skip publish when simulating a dead link) ---
-        if not simulate_stale:
-            self.bus.publish(config.MQTT_TOPIC_TAGS, snapshot)
+        # --- M3: publish through the bus and store in the historian ---
+        self.bus.publish(config.MQTT_TOPIC_TAGS, snapshot)
         self.historian.record(snapshot)
 
         with self._lock:

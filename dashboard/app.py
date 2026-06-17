@@ -139,7 +139,7 @@ _ALARM_STAGE = {
 }
 
 
-def _render_flow_diagram(latest: dict, alarm_code: int) -> None:
+def _render_flow_diagram(latest: dict, alarm_code: int, frozen: bool = False) -> None:
     """Five stage cards S1..S5 with arrows; active stages green, faulted red."""
     alarm_stage = _ALARM_STAGE.get(alarm_code)
     stages = [
@@ -156,7 +156,9 @@ def _render_flow_diagram(latest: dict, alarm_code: int) -> None:
     ]
     cols = st.columns([4, 1, 4, 1, 4, 1, 4, 1, 4])
     for i, (sid, name, active, sub) in enumerate(stages):
-        if sid == alarm_stage:
+        if frozen:
+            status, sub = "idle", "frozen"
+        elif sid == alarm_stage:
             status = "bad"
         elif active:
             status = "ok"
@@ -170,7 +172,7 @@ def _render_flow_diagram(latest: dict, alarm_code: int) -> None:
             cols[i * 2 + 1].markdown(arrow(), unsafe_allow_html=True)
 
 
-def _render_kpis(latest: dict) -> None:
+def _render_kpis(latest: dict, frozen: bool = False) -> None:
     temp = float(latest.get("pasteur_temp", 0))
     if temp > config.PASTEUR_SAFE_MAX:
         temp_status = "bad"
@@ -196,6 +198,8 @@ def _render_kpis(latest: dict) -> None:
     ]
     cols = st.columns(len(cards))
     for col, (label, value, status, sub) in zip(cols, cards):
+        if frozen:
+            status, sub = "idle", "frozen"
         col.markdown(status_card(label, value, status, sub), unsafe_allow_html=True)
 
 
@@ -207,9 +211,21 @@ def live_view() -> None:
     latest = engine.latest()
     alarm_code = int(latest.get("alarm_code", config.ALARM_NONE))
     plc_state = latest.get("plc_state", config.PLC_IDLE)
+    frozen = alarm_code == config.ALARM_DATA_STALE
 
-    # Alarm banner
-    if alarm_code != config.ALARM_NONE:
+    # Banner
+    if frozen:
+        st.markdown(
+            '<div style="background:#37474f;color:#fff;border-radius:8px;'
+            'padding:16px 18px;text-align:center;margin-bottom:6px;">'
+            '<span style="font-size:1.3rem;font-weight:800;letter-spacing:.05em;">'
+            '&#9208; DATA FROZEN</span><br>'
+            '<span style="font-size:0.9rem;opacity:.9;">Live tags stopped updating '
+            '(DATA_STALE alarm). Values below are the last readings received '
+            'before the data link went down.</span></div>',
+            unsafe_allow_html=True,
+        )
+    elif alarm_code != config.ALARM_NONE:
         st.error(
             f"🚨 ALARM [{config.ALARM_LABELS.get(alarm_code)}] - "
             f"{config.ALARM_DESCRIPTIONS.get(alarm_code)}  ·  PLC state: {plc_state}"
@@ -218,10 +234,10 @@ def live_view() -> None:
         st.success(f"✅ Normal operation  ·  PLC state: {plc_state}")
 
     # --- Process flow diagram: S1 -> S2 -> S3 -> S4 -> S5 -----------------
-    _render_flow_diagram(latest, alarm_code)
+    _render_flow_diagram(latest, alarm_code, frozen=frozen)
 
     # --- KPI cards (colored by threshold) --------------------------------
-    _render_kpis(latest)
+    _render_kpis(latest, frozen=frozen)
 
     # --- Trend charts -----------------------------------------------------
     history = engine.historian.recent(window_s=window)
