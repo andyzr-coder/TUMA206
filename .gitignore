@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Local runtime artifacts
+historian.db
+history_export.csv
+*.log
+
+# Secrets
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Office temp lock files
+~$*

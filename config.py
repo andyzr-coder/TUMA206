@@ -38,7 +38,8 @@ PASTEUR_SAFE_MAX = 78.0        # degC upper safe bound
 COOLER_SETPOINT = 20.0         # degC target product temperature after cooling
 COOLER_OPEN_ABOVE = 25.0       # degC open cooling valve above this
 
-FILL_DURATION_TICKS = 3        # ticks the fill valve stays open per bottle
+FILL_DURATION_TICKS = 3        # ticks needed to fill one bottle
+BOTTLE_CYCLE_TICKS = 6         # ticks per bottle at the filling station (incl. gap)
 AMBIENT_TEMP = 25.0            # degC ambient temperature
 
 # Number of consecutive abnormal ticks before the PLC latches an alarm.
